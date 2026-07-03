@@ -96,10 +96,7 @@ def init_state() -> None:
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
-    if st.session_state["run_id"] is None:
-        latest = get_latest_run(DB_PATH)
-        if latest:
-            st.session_state["run_id"] = latest["id"]
+
 
 
 def normalize_knowledge_bases(selection: list[str]) -> list[str]:
