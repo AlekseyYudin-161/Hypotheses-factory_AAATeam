@@ -1,0 +1,10 @@
+services:
+  workbench:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      - HYPOTHESIS_API_URL=${HYPOTHESIS_API_URL:-}
+      - API_TOKEN=${API_TOKEN:-}
+    volumes:
+      - ./data:/app/data
