@@ -11,13 +11,16 @@ EXAMPLE_MAPPING = {
     "relation": "Эффект", "value": "Значение", "unit": "Ед",
 }
 
-def read_table(path: str) -> pd.DataFrame:
+def read_table(path: str, header: int = 0) -> pd.DataFrame:
     p = path.lower()
     if p.endswith(".csv"):
         return pd.read_csv(path)
     if p.endswith(".tsv"):
         return pd.read_csv(path, sep="\t")
-    return pd.read_excel(path)
+    df = pd.read_excel(path, header=header)
+    df = df.loc[:, ~df.columns.astype(str).str.startswith("Unnamed")]  # выкинуть пустые Unnamed
+    df = df.dropna(how="all")                                          # выкинуть пустые строки
+    return df
 
 def is_empty_table(df: pd.DataFrame) -> bool:
     return df is None or df.empty or df.dropna(how="all").empty
