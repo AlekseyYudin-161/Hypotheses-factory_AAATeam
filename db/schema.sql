@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
   chunk_id    BIGSERIAL PRIMARY KEY,
   doi         TEXT,
   chunk_text  TEXT,
-  embedding   vector(256),
+  embedding   vector(1536),
   text_search tsvector
 );
 CREATE INDEX IF NOT EXISTS idx_chunks_fts ON knowledge_chunks USING GIN(text_search);

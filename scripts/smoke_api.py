@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.core.llm import llm_generate, embed_doc
 
 print("== LLM (генерация) ==")
-print(llm_generate("Придумай 3 необычные идеи для стартапа в сфере путешествий.", max_output_tokens=20))
+print(llm_generate("Придумай 3 необычные идеи для стартапа в сфере путешествий.", max_tokens=20))
 
 print("\n== EMBED (эмбеддер) ==")
 v = embed_doc("тестовый чанк про обогащение руды, хвосты и шлаки")
