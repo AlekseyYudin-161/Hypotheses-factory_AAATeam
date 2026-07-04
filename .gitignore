@@ -9,4 +9,6 @@ __pycache__/
 .idea/
 .vscode/
 
-data/
+data/*
+!data/refs/
+!data/refs/**
