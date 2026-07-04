@@ -24,6 +24,7 @@ PROXYAPI_API_KEY = os.environ["PROXYAPI_API_KEY"]
 PROXYAPI_BASE_URL = os.environ.get("PROXYAPI_BASE_URL", "https://api.proxyapi.ru/openai/v1")
 
 MODEL_MAIN = "gpt-4.1-mini"
+MODEL_VISION = "gpt-4.1-mini"
 EMB_MODEL  = "text-embedding-3-small"
 EMB_DIM = 1536
 
