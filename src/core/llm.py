@@ -1,48 +1,41 @@
-"""Общий слой доступа к Yandex AI Studio. Импортируют и индексация, и query (ML/RL).
-Yandex — OpenAI-совместимый API. Модель задаётся как gpt://{folder}/{model}."""
+"""Общий слой доступа к LLM через ProxyAPI (OpenAI-совместимый API).
+Импортируют и индексация, и query (ML/RL). Стандартный OpenAI SDK, без префиксов."""
 
 from openai import OpenAI
 from src.core.config import (
-    YANDEX_API_KEY, YANDEX_FOLDER_ID, YANDEX_BASE_URL,
-    MODEL_PRO, EMB_DOC, EMB_QUERY,
+    PROXYAPI_API_KEY, PROXYAPI_BASE_URL,
+    MODEL_MAIN, EMB_MODEL,
 )
 
 client = OpenAI(
-    api_key=YANDEX_API_KEY,
-    project=YANDEX_FOLDER_ID,
-    base_url=YANDEX_BASE_URL,
+    api_key=PROXYAPI_API_KEY,
+    base_url=PROXYAPI_BASE_URL,
 )
 
-def _gpt_uri(model: str) -> str:
-    return f"gpt://{YANDEX_FOLDER_ID}/{model}"
+def llm_generate(prompt: str,
+                 model: str = MODEL_MAIN,
+                 temperature: float = 0.2,
+                 max_tokens: int = 1_500) -> str:
+    """Генерация. Модель передаёт вызывающий (по умолчанию MODEL_MAIN = gpt-4.1-mini)."""
 
-def llm_generate(prompt: str, model: str = MODEL_PRO,
-                 temperature: float = 0.2, max_output_tokens: int =1_500) -> str:
-    """Генерация. model=MODEL_PRO для IE/синтеза, MODEL_LITE для скорости."""
-
-    response = client.responses.create(
-        model=_gpt_uri(model),
-        input=prompt,
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
         temperature=temperature,
-        max_output_tokens=max_output_tokens,
+        max_tokens=max_tokens,
     )
-    return response.output[0].content[0].text
-    # try:
-    #     return response.output[0].content[0].text
-    # except AttributeError:
-    #     # handle the case when response is None or does not have the expected attributes
-    #     return "Error: No response received"
+    return response.choices[0].message.content
 
-def _embed(text: str, emb_model: str):
+def _embed(text: str):
     e = client.embeddings.create(
-        model=f"emb://{YANDEX_FOLDER_ID}/{emb_model}",
+        model=EMB_MODEL,        # text-embedding-3-small; без префикса, без encoding_format
         input=text,
-        encoding_format="float",                        # <-- Yandex не поддерживает base64
     )
     return e.data[0].embedding
 
-def embed_doc(text: str):                               # ИНДЕКСАЦИЯ (мой таск)
-    return _embed(text, EMB_DOC)
+# У OpenAI одна модель эмбеддинга (нет doc/query-разделения как у Yandex).
+def embed_doc(text: str):       # ИНДЕКСАЦИЯ (мой таск)
+    return _embed(text)
 
-def embed_query(text: str):                             # RETRIEVAL (у ML/RL)
-    return _embed(text, EMB_QUERY)
+def embed_query(text: str):     # RETRIEVAL (у ML/RL)
+    return _embed(text)
