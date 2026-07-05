@@ -7,8 +7,10 @@ services:
     ports:
       - "5432:5432"                        # чтобы гонять индексацию с хоста (localhost)
     volumes:
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
-      - pgdata:/var/lib/postgresql/data    # ПЕРСИСТ индекса — НЕ удалять до 5 июля
+      # Порядок init-скриптов = алфавитный: сначала схема, потом данные корпуса.
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+      - ./corpus_dump.sql:/docker-entrypoint-initdb.d/02_corpus.sql   # автозагрузка корпуса
+      - pgdata:/var/lib/postgresql/data    # ПЕРСИСТ индекса
     healthcheck:                           # БД считается healthy, когда принимает соединения
       test: ["CMD-SHELL", "pg_isready -U postgres -d hypothesis_factory"]
       interval: 5s
