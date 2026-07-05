@@ -1,10 +1,33 @@
 services:
-  workbench:
-    build: .
-    ports:
-      - "8501:8501"
+  db:
+    image: pgvector/pgvector:pg16
     environment:
-      - HYPOTHESIS_API_URL=${HYPOTHESIS_API_URL:-}
-      - API_TOKEN=${API_TOKEN:-}
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: hypothesis_factory
+    ports:
+      - "5432:5432"                        # чтобы гонять индексацию с хоста (localhost)
     volumes:
-      - ./data:/app/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - pgdata:/var/lib/postgresql/data    # ПЕРСИСТ индекса — НЕ удалять до 5 июля
+    healthcheck:                           # БД считается healthy, когда принимает соединения
+      test: ["CMD-SHELL", "pg_isready -U postgres -d hypothesis_factory"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s                    # запас на первичную инициализацию + schema.sql
+
+  app:
+    build: .                               # для сдачи: собери и запушь в реестр,
+                                           # затем замени на image: <user>/hf-app:latest
+    env_file: .env                         # YANDEX_API_KEY, FOLDER_ID
+    environment:
+      # ВНУТРИ сети compose host БД = имя сервиса db, НЕ localhost
+      DB_DSN: postgresql://postgres:postgres@db:5432/hypothesis_factory
+    depends_on:
+      db:
+        condition: service_healthy         # app стартует ТОЛЬКО когда db healthy
+    ports:
+      - "8501:8501"                        # публичный URL решения -> :8501
+
+volumes:
+  pgdata:
