@@ -19,7 +19,7 @@ services:
   app:
     build: .                               # для сдачи: собери и запушь в реестр,
                                            # затем замени на image: <user>/hf-app:latest
-    env_file: .env                         # YANDEX_API_KEY, FOLDER_ID
+    env_file: .env                         # PROXYAPI_API_KEY, PROXYAPI_BASE_URL, EMB_MODEL, EMB_DIM
     environment:
       # ВНУТРИ сети compose host БД = имя сервиса db, НЕ localhost
       DB_DSN: postgresql://postgres:postgres@db:5432/hypothesis_factory
