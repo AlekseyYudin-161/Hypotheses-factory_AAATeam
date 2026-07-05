@@ -12,8 +12,8 @@
   * генерация топ-3 гипотез — ОДИН вызов LLM (кап генерации);
   * легальный отказ, если всё нерентабельно.
 
-LLM: ChatOpenAI(model="gpt-4o-mini"). Модель можно подменить (для тестов/локальной
-GPU) — конструктор принимает готовый объект `llm`.
+LLM: ChatOpenAI(model="gpt-4.1-mini"). Модель можно подменить (для тестов/локальной
+GPU) — конструктор принимает готовый объект `llm`, а дефолтную задаёт env LLM_MODEL.
 """
 
 from __future__ import annotations
@@ -165,11 +165,14 @@ class FabrikaPipeline:
     # ------------------------------------------------------------------ #
     @staticmethod
     def _default_llm():
-        """ChatOpenAI(gpt-4o-mini) через ProxyAPI. request-таймаут ниже дедлайна цикла."""
+        """ChatOpenAI(gpt-4.1-mini) через ProxyAPI. request-таймаут ниже дедлайна цикла.
+
+        Модель переопределяется через LLM_MODEL (дефолт — gpt-4.1-mini).
+        """
         from langchain_openai import ChatOpenAI  # локальный импорт: не тянем зависимость в тестах
 
         return ChatOpenAI(
-            model="gpt-4o-mini",
+            model=os.getenv("LLM_MODEL", "gpt-4.1-mini"),
             temperature=0.2,
             timeout=45,  # per-call request timeout, с запасом под 120с бюджет
             api_key=os.getenv("PROXYAPI_API_KEY") or os.getenv("OPENAI_API_KEY", "dummy"),
@@ -197,7 +200,7 @@ class FabrikaPipeline:
 
         rich_input — текст «богатого промпта» (описание + бюджет/сроки + Markdown-таблица).
         images     — опциональные фото/схемы из промпта жюри (пути к файлам, http(s)-URL
-                     или data:-URI). Уходят в мультимодальный вход шага 1 (gpt-4o-mini vision).
+                     или data:-URI). Уходят в мультимодальный вход шага 1 (gpt-4.1-mini vision).
 
         Тяжёлую работу выполняем в отдельном потоке и ждём с таймаутом: даже если
         LLM «зависла», фронтенд гарантированно получит ответ (частичный/отказ).
