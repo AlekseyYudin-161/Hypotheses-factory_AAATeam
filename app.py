@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -18,12 +19,12 @@ from services.exporters import (
     build_pdf,
     build_tasks_csv,
 )
+from services.documents import metadata_for_storage, process_uploaded_files
 from services.generator import calculate_final_score, generate_hypotheses
 from services.storage import (
     add_feedback,
     create_run,
     get_hypotheses,
-    get_latest_run,
     get_run,
     init_db,
     list_feedback,
@@ -34,17 +35,6 @@ from services.storage import (
 
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("APP_DB_PATH", APP_DIR / "data" / "workbench.db"))
-
-ALL_KNOWLEDGE_BASES = "all"
-KNOWLEDGE_BASE_CODES = [
-    "scientific_publications",
-    "patents",
-    "internal_reports",
-    "historical_experiments",
-    "materials_data",
-    "process_data",
-    "open_sources",
-]
 
 st.set_page_config(
     page_title="Hypothesis Workbench",
@@ -92,23 +82,11 @@ def init_state() -> None:
         "w_value": 0.3,
         "flash": "",
         "status_filter": "all",
-        "knowledge_base_selection": [ALL_KNOWLEDGE_BASES],
+        "session_id": str(uuid.uuid4()),
     }
     for key, value in defaults.items():
         st.session_state.setdefault(key, value)
 
-
-
-def normalize_knowledge_bases(selection: list[str]) -> list[str]:
-    if ALL_KNOWLEDGE_BASES in selection:
-        return KNOWLEDGE_BASE_CODES.copy()
-    return list(dict.fromkeys(code for code in selection if code in KNOWLEDGE_BASE_CODES))
-
-
-def knowledge_bases_text(codes: list[str], tr: dict[str, str]) -> str:
-    if set(codes) == set(KNOWLEDGE_BASE_CODES):
-        return tr["kb_all"]
-    return ", ".join(tr[f"kb_{code}"] for code in codes)
 
 
 def rerank(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -170,11 +148,47 @@ def render_sources(evidence: list[dict[str, Any]], tr: dict[str, str]) -> None:
             unsafe_allow_html=True,
         )
         url = source.get("source_url")
+        local_path = source.get("local_path")
         if url:
             st.markdown(f"[{tr['open_source']}]({url})")
+        elif local_path and Path(local_path).exists():
+            with Path(local_path).open("rb") as file_handle:
+                st.download_button(
+                    tr["download_uploaded_source"],
+                    data=file_handle.read(),
+                    file_name=source.get("source", Path(local_path).name),
+                    key=f"source_download_{source.get('chunk_id', local_path)}",
+                )
         else:
             st.error(tr["missing_link"])
 
+
+
+def render_uploaded_documents(documents: list[dict[str, Any]], tr: dict[str, str]) -> None:
+    if not documents:
+        return
+    status_labels = {
+        "text_extracted": tr["document_status_text"],
+        "table_extracted": tr["document_status_table"],
+        "requires_ocr": tr["document_status_ocr"],
+        "saved_only": tr["document_status_saved"],
+        "read_error": tr["document_status_error"],
+    }
+    rows = []
+    for document in documents:
+        rows.append(
+            {
+                tr["document_name"]: document.get("name", ""),
+                tr["document_type"]: document.get("mime_type", ""),
+                tr["document_size"]: f"{document.get('size_bytes', 0) / 1024:.1f} KB",
+                tr["document_pages"]: document.get("page_count") or "—",
+                tr["document_status"]: status_labels.get(document.get("status", ""), document.get("status", "")),
+            }
+        )
+    with st.expander(f"{tr['uploaded_documents_title']} ({len(documents)})"):
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        if any(document.get("status") == "requires_ocr" for document in documents):
+            st.warning(tr["documents_ocr_warning"])
 
 def save_status(item: dict[str, Any], new_status: str, comment: str = "") -> None:
     old_status = item["status"]
@@ -381,12 +395,11 @@ with workbench_tab:
             placeholder=tr["kpi_placeholder"],
             height=110,
         )
-        knowledge_base_selection = st.multiselect(
-            tr["knowledge_bases_label"],
-            options=[ALL_KNOWLEDGE_BASES, *KNOWLEDGE_BASE_CODES],
-            default=st.session_state["knowledge_base_selection"],
-            format_func=lambda code: tr[f"kb_{code}"],
-            help=tr["knowledge_bases_help"],
+        uploaded_files = st.file_uploader(
+            tr["documents_label"],
+            type=["pdf", "docx", "txt", "md", "csv", "xlsx", "json"],
+            accept_multiple_files=True,
+            help=tr["documents_help"],
         )
         constraints = st.text_area(
             tr["constraints_label"],
@@ -402,25 +415,26 @@ with workbench_tab:
     if generate:
         if not kpi.strip():
             st.warning(tr["enter_kpi"])
-        elif not knowledge_base_selection:
-            st.warning(tr["knowledge_bases_required"])
         else:
-            st.session_state["knowledge_base_selection"] = knowledge_base_selection
-            selected_knowledge_bases = normalize_knowledge_bases(knowledge_base_selection)
             try:
                 with st.spinner(tr["generating"]):
+                    documents = process_uploaded_files(
+                        uploaded_files or [],
+                        APP_DIR / "data" / "uploads" / st.session_state["session_id"],
+                    )
                     hypotheses = generate_hypotheses(
                         kpi=kpi.strip(),
                         constraints=constraints.strip(),
                         language=st.session_state["language"],
-                        knowledge_bases=selected_knowledge_bases,
+                        documents=documents,
                     )
                     run_id = create_run(
                         DB_PATH,
                         kpi=kpi.strip(),
                         constraints_text=constraints.strip(),
                         language=st.session_state["language"],
-                        knowledge_bases=selected_knowledge_bases,
+                        knowledge_bases=[],
+                        documents=metadata_for_storage(documents),
                     )
                     save_hypotheses(DB_PATH, run_id, hypotheses)
                     st.session_state["run_id"] = run_id
@@ -440,13 +454,12 @@ with workbench_tab:
     st.caption(tr["ranking_formula"])
 
     if run:
-        selected_kb_text = knowledge_bases_text(run.get("knowledge_bases", []), tr)
         st.caption(
             f"{tr['current_request']}: {run['kpi']} · "
-            f"{tr['knowledge_bases_selected']}: {selected_kb_text} · "
             f"{tr['constraints']}: {run['constraints_text'] or tr['not_set']} · "
             f"{tr['date']}: {run['created_at']}"
         )
+        render_uploaded_documents(run.get("documents", []), tr)
 
     if not items:
         st.info(tr["start_hint"])

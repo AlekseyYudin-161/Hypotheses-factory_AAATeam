@@ -98,7 +98,7 @@ def build_json(run: dict[str, Any], items: list[dict[str, Any]]) -> bytes:
             "kpi": run["kpi"],
             "constraints": run["constraints_text"],
             "language": run["language"],
-            "knowledge_bases": run.get("knowledge_bases", []),
+            "documents": run.get("documents", []),
             "created_at": run["created_at"],
             "hypotheses": items,
         },
@@ -113,9 +113,10 @@ def build_docx(run: dict[str, Any], items: list[dict[str, Any]]) -> bytes:
     title = doc.add_heading(tr["report_title"], level=0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     doc.add_paragraph(f"{tr['kpi_label']}: {run['kpi']}")
-    doc.add_paragraph(f"{tr['knowledge_bases_selected']}: {', '.join(tr.get(f'kb_{code}', code) for code in run.get('knowledge_bases', []))}")
     doc.add_paragraph(f"{tr['constraints']}: {run['constraints_text'] or tr['not_set']}")
     doc.add_paragraph(f"{tr['date']}: {run['created_at']}")
+    if run.get("documents"):
+        doc.add_paragraph(f"{tr['uploaded_documents_title']}: " + ", ".join(document.get("name", "") for document in run["documents"]))
 
     doc.add_heading(tr["ranked_list"], level=1)
     table = doc.add_table(rows=1, cols=7)
@@ -222,11 +223,14 @@ def build_pdf(run: dict[str, Any], items: list[dict[str, Any]]) -> bytes:
         Paragraph(escape(tr["report_title"]), title_style),
         Spacer(1, 8),
         Paragraph(escape(f"{tr['kpi_label']}: {run['kpi']}"), body_style),
-        Paragraph(escape(f"{tr['knowledge_bases_selected']}: {', '.join(tr.get(f'kb_{code}', code) for code in run.get('knowledge_bases', []))}"), body_style),
         Paragraph(escape(f"{tr['constraints']}: {run['constraints_text'] or tr['not_set']}"), body_style),
+    ]
+    if run.get("documents"):
+        story.append(Paragraph(escape(f"{tr['uploaded_documents_title']}: " + ", ".join(document.get("name", "") for document in run["documents"])), body_style))
+    story.extend([
         Spacer(1, 10),
         Paragraph(escape(tr["ranked_list"]), heading_style),
-    ]
+    ])
     table_data = [["№", tr["rationale"], "N", "R", "V", "EV", tr["final"]]]
     for rank, item in enumerate(items, start=1):
         table_data.append([

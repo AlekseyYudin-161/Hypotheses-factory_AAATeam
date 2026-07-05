@@ -538,13 +538,44 @@ def _normalize_backend_response(data: Any) -> list[dict[str, Any]]:
     return normalized
 
 
+def _documents_context(documents: list[dict[str, Any]] | None) -> str:
+    """Склеиваем текст загруженных пользователем документов в добавку к constraints.
+
+    process_uploaded_files отдаёт по каждому файлу поля name / text / excerpt.
+    Берём text (полный, уже обрезан лимитом), иначе excerpt.
+    """
+    if not documents:
+        return ""
+    blocks: list[str] = []
+    for doc in documents:
+        if not isinstance(doc, dict):
+            continue
+        body = (doc.get("text") or doc.get("excerpt") or "").strip()
+        if not body:
+            continue
+        name = str(doc.get("name") or doc.get("stored_name") or "документ")
+        blocks.append(f"[Документ: {name}]\n{body}")
+    return "\n\n".join(blocks)
+
+
 def generate_hypotheses(
     kpi: str,
     constraints: str,
     language: str,
     knowledge_bases: list[str] | None = None,
+    documents: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     selected_knowledge_bases = _normalized_knowledge_bases(knowledge_bases)
+
+    # Текст загруженных документов подмешиваем в ограничения, чтобы он дошёл
+    # до любого генератора ниже (RAG-декомпозиция / шаблонный / внешний бэкенд).
+    docs_context = _documents_context(documents)
+    if docs_context:
+        constraints = (
+            f"{constraints}\n\nМАТЕРИАЛЫ ПОЛЬЗОВАТЕЛЯ:\n{docs_context}"
+            if constraints and constraints.strip()
+            else f"МАТЕРИАЛЫ ПОЛЬЗОВАТЕЛЯ:\n{docs_context}"
+        )
 
     # Приоритет: реальный RAG-пайплайн (pgvector + LLM) при заданном DB_DSN.
     # Отключается через USE_RAG=0 (тогда работает шаблонный генератор ниже).

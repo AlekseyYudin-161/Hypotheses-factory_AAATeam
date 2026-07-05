@@ -25,6 +25,7 @@ def init_db(db_path: Path) -> None:
                 constraints_text TEXT,
                 language TEXT NOT NULL,
                 knowledge_bases_json TEXT NOT NULL DEFAULT '[]',
+                documents_json TEXT NOT NULL DEFAULT '[]',
                 created_at TEXT NOT NULL
             );
 
@@ -82,6 +83,10 @@ def init_db(db_path: Path) -> None:
             conn.execute(
                 "ALTER TABLE runs ADD COLUMN knowledge_bases_json TEXT NOT NULL DEFAULT '[]'"
             )
+        if "documents_json" not in run_columns:
+            conn.execute(
+                "ALTER TABLE runs ADD COLUMN documents_json TEXT NOT NULL DEFAULT '[]'"
+            )
 
         hypothesis_columns = {
             row["name"] for row in conn.execute("PRAGMA table_info(hypotheses)")
@@ -121,13 +126,14 @@ def create_run(
     constraints_text: str,
     language: str,
     knowledge_bases: list[str],
+    documents: list[dict[str, Any]] | None = None,
 ) -> str:
     run_id = str(uuid.uuid4())
     with _connect(db_path) as conn:
         conn.execute(
             """
-            INSERT INTO runs (id, kpi, constraints_text, language, knowledge_bases_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO runs (id, kpi, constraints_text, language, knowledge_bases_json, documents_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
@@ -135,6 +141,7 @@ def create_run(
                 constraints_text,
                 language,
                 json.dumps(knowledge_bases, ensure_ascii=False),
+                json.dumps(documents or [], ensure_ascii=False),
                 datetime.now().isoformat(timespec="seconds"),
             ),
         )
@@ -148,6 +155,7 @@ def get_run(db_path: Path, run_id: str) -> dict[str, Any] | None:
         return None
     result = dict(row)
     result["knowledge_bases"] = json.loads(result.pop("knowledge_bases_json", "[]") or "[]")
+    result["documents"] = json.loads(result.pop("documents_json", "[]") or "[]")
     return result
 
 
@@ -160,6 +168,7 @@ def get_latest_run(db_path: Path) -> dict[str, Any] | None:
         return None
     result = dict(row)
     result["knowledge_bases"] = json.loads(result.pop("knowledge_bases_json", "[]") or "[]")
+    result["documents"] = json.loads(result.pop("documents_json", "[]") or "[]")
     return result
 
 
