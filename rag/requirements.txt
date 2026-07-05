@@ -2,6 +2,6 @@
 langchain-core>=0.3
 langchain-openai>=0.2
 pydantic>=2.6,<3.0
-# Для реального pgvector-ретривала (в проде, не для заглушек):
-# sqlalchemy>=2.0,<3.0
-# psycopg2-binary>=2.9,<3.0
+# Боевой ретривал по pgvector (rag/database.py):
+openai>=1.40
+psycopg2-binary>=2.9

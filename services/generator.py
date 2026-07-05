@@ -8,6 +8,13 @@ from typing import Any
 
 import requests
 
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()  # подхватываем .env (DB_DSN, PROXYAPI_*) при локальном запуске UI
+except Exception:  # dotenv опционален
+    pass
+
 BACKEND_URL = os.getenv("HYPOTHESIS_API_URL", "").strip()
 SOURCE_ROOT_URL = os.getenv(
     "SOURCE_ROOT_URL",
@@ -538,6 +545,17 @@ def generate_hypotheses(
     knowledge_bases: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     selected_knowledge_bases = _normalized_knowledge_bases(knowledge_bases)
+
+    # Приоритет: реальный RAG-пайплайн (pgvector + LLM) при заданном DB_DSN.
+    # Отключается через USE_RAG=0 (тогда работает шаблонный генератор ниже).
+    if os.getenv("DB_DSN") and os.getenv("USE_RAG", "1") != "0":
+        try:
+            from rag.service import generate_hypotheses as _rag_generate
+
+            return _rag_generate(kpi, constraints or "", language, selected_knowledge_bases)
+        except Exception as exc:  # не роняем UI — падаем в шаблонный генератор
+            print(f"[generator] RAG pipeline failed ({exc}); using local template generator")
+
     if not BACKEND_URL:
         return _local_generate(kpi, constraints, language, selected_knowledge_bases)
 
