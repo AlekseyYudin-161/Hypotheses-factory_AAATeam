@@ -18,11 +18,14 @@ GPU) — конструктор принимает готовый объект `
 
 from __future__ import annotations
 
+import base64
+import mimetypes
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from typing import List, Optional
 
+from langchain_core.messages import HumanMessage
 from langchain_core.prompts import ChatPromptTemplate
 
 from .schemas import (
@@ -83,6 +86,21 @@ DECOMPOSE_PROMPT = ChatPromptTemplate.from_messages(
             '"budget": 5000000, "time_limit": "6 месяцев", "mass_smt": 120000, '
             '"mechanisms": ["автоклавное выщелачивание", "магнитная сепарация", "флотация", "биовыщелачивание"]}}',
         ),
+        # Металлургия: шлаки/отвалы (в реальном промпте — плюс фото/схемы, они уходят
+        # отдельным image-блоком в том же человеческом сообщении, см. _decompose).
+        (
+            "user",
+            "На фото и схеме — отвальный шлак медеплавильного производства, теряем медь. "
+            "Бюджет не указан, срок 4 месяца.\n"
+            "| Продукт | Масса, СМТ | Cu, % |\n|---|---|---|\n| Отвальный шлак | 80000 | 0.9 |",
+        ),
+        (
+            "assistant",
+            '{{"target_material": "отвальный медеплавильный шлак", '
+            '"target_property": "доизвлечение меди", '
+            '"budget": null, "time_limit": "4 месяца", "mass_smt": 80000, '
+            '"mechanisms": ["флотация шлака", "обеднение шлака в электропечи", "медленное охлаждение шлака", "измельчение"]}}',
+        ),
         ("user", "{rich_input}"),
     ]
 )
@@ -93,7 +111,8 @@ SYNTH_PROMPT = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            "Ты — главный технолог-исследователь по переработке хвостов и доизвлечению цветных металлов. "
+            "Ты — главный технолог-исследователь по обогащению руд и металлургии: переработка "
+            "хвостов, отвалов и шлаков, доизвлечение цветных металлов (Ni, Cu), снижение затрат. "
             "Сгенерируй РОВНО 3 гипотезы за один ответ (это жёсткий кап).\n"
             "ТРЕБОВАНИЯ к каждой гипотезе:\n"
             "  * опирайся ТОЛЬКО на предоставленный контекст; DOI бери строго из меток [DOI: ...];\n"
@@ -160,15 +179,19 @@ class FabrikaPipeline:
     # ------------------------------------------------------------------ #
     # Публичный API
     # ------------------------------------------------------------------ #
-    def generate(self, rich_input: str) -> PipelineResult:
+    def generate(self, rich_input: str, images: Optional[List[str]] = None) -> PipelineResult:
         """
         Полный цикл с жёстким 2-минутным дедлайном.
+
+        rich_input — текст «богатого промпта» (описание + бюджет/сроки + Markdown-таблица).
+        images     — опциональные фото/схемы из промпта жюри (пути к файлам, http(s)-URL
+                     или data:-URI). Уходят в мультимодальный вход шага 1 (gpt-4o-mini vision).
 
         Тяжёлую работу выполняем в отдельном потоке и ждём с таймаутом: даже если
         LLM «зависла», фронтенд гарантированно получит ответ (частичный/отказ).
         """
         with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(self._run, rich_input)
+            future = pool.submit(self._run, rich_input, images)
             try:
                 return future.result(timeout=self.deadline_seconds)
             except FuturesTimeout:
@@ -181,17 +204,15 @@ class FabrikaPipeline:
     # ------------------------------------------------------------------ #
     # Основная последовательность шагов
     # ------------------------------------------------------------------ #
-    def _run(self, rich_input: str) -> PipelineResult:
+    def _run(self, rich_input: str, images: Optional[List[str]] = None) -> PipelineResult:
         start = time.monotonic()
 
         def out_of_time() -> bool:
             # Оставляем ~2с на сборку/сериализацию ответа.
             return (time.monotonic() - start) > (self.deadline_seconds - 2)
 
-        # --- ШАГ 1: Индустриальная декомпозиция ---
-        constraints: IndustrialConstraints = self.decompose_chain.invoke(
-            {"rich_input": rich_input}
-        )
+        # --- ШАГ 1: Индустриальная декомпозиция (текст + опциональные фото/схемы) ---
+        constraints: IndustrialConstraints = self._decompose(rich_input, images)
 
         # Ранний легальный отказ: нет бюджета вообще и заявлено «нет средств».
         if constraints.budget is not None and constraints.budget <= 0:
@@ -232,6 +253,46 @@ class FabrikaPipeline:
             return PipelineResult(refused=True, message=REFUSAL_MESSAGE)
 
         return PipelineResult(hypotheses=survivors[:TOP_N])
+
+    # ------------------------------------------------------------------ #
+    # ШАГ 1: декомпозиция (мультимодальная)
+    # ------------------------------------------------------------------ #
+    def _decompose(
+        self, rich_input: str, images: Optional[List[str]]
+    ) -> IndustrialConstraints:
+        """
+        Разбор богатого входа. Без картинок — обычная текстовая цепочка.
+        С картинками — тот же промпт + few-shot, но финальное человеческое сообщение
+        собираем вручную как мультимодальный блок (text + image_url).
+        """
+        if not images:
+            return self.decompose_chain.invoke({"rich_input": rich_input})
+
+        # Берём отформатированные system + few-shot сообщения, а последний
+        # человеческий ход ({rich_input}) заменяем на мультимодальный.
+        messages = DECOMPOSE_PROMPT.format_messages(rich_input=rich_input)[:-1]
+        content: list[dict] = [{"type": "text", "text": rich_input}]
+        content += [self._image_block(img) for img in images]
+        messages.append(HumanMessage(content=content))
+
+        structured = self.llm.with_structured_output(IndustrialConstraints)
+        return structured.invoke(messages)
+
+    @staticmethod
+    def _image_block(img: str) -> dict:
+        """Приводим изображение к формату image_url для OpenAI vision.
+
+        Принимает http(s)-URL, готовый data:-URI или путь к локальному файлу
+        (последний кодируем в base64 data-URI).
+        """
+        if img.startswith(("http://", "https://", "data:")):
+            url = img
+        else:
+            mime = mimetypes.guess_type(img)[0] or "image/png"
+            with open(img, "rb") as fh:
+                b64 = base64.b64encode(fh.read()).decode("ascii")
+            url = f"data:{mime};base64,{b64}"
+        return {"type": "image_url", "image_url": {"url": url}}
 
     # ------------------------------------------------------------------ #
     # ШАГ 2: ретривал
