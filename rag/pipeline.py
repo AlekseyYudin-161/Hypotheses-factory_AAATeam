@@ -165,16 +165,28 @@ class FabrikaPipeline:
     # ------------------------------------------------------------------ #
     @staticmethod
     def _default_llm():
-        """ChatOpenAI(gpt-4o-mini). request-таймаут держим ниже дедлайна цикла."""
+        """ChatOpenAI(gpt-4o-mini) через ProxyAPI. request-таймаут ниже дедлайна цикла."""
         from langchain_openai import ChatOpenAI  # локальный импорт: не тянем зависимость в тестах
 
         return ChatOpenAI(
             model="gpt-4o-mini",
             temperature=0.2,
             timeout=45,  # per-call request timeout, с запасом под 120с бюджет
-            api_key=os.getenv("OPENAI_API_KEY", "dummy"),
-            # base_url="http://localhost:8000/v1",  # раскомментировать для локальной GPU
+            api_key=os.getenv("PROXYAPI_API_KEY") or os.getenv("OPENAI_API_KEY", "dummy"),
+            base_url=os.getenv("PROXYAPI_BASE_URL") or None,
         )
+
+    @classmethod
+    def from_env(cls) -> "FabrikaPipeline":
+        """
+        Боевая сборка: реальная LLM (ProxyAPI) + pgvector по DB_DSN.
+
+        Требует переменные окружения: DB_DSN, PROXYAPI_API_KEY, PROXYAPI_BASE_URL
+        (и EMB_MODEL при необходимости). Используется бэкендом/адаптером в проде.
+        """
+        from .database import DatabaseClient
+
+        return cls(knowledge_base=DatabaseClient())
 
     # ------------------------------------------------------------------ #
     # Публичный API
@@ -242,6 +254,11 @@ class FabrikaPipeline:
                 "context_str": context_str,
             }
         )
+
+        # Нормализуем DOI: модель иногда копирует всю метку «DOI: file:...»
+        # вместе с префиксом — оставляем только сам идентификатор.
+        for draft in batch.hypotheses:
+            draft.doi_sources = [self._clean_doi(s) for s in draft.doi_sources]
 
         # --- ШАГ 4: Ранжирование и отсев ---
         scored = [self._score(d, constraints) for d in batch.hypotheses[:TOP_N]]
@@ -312,6 +329,15 @@ class FabrikaPipeline:
                     seen_doi.add(chunk["doi"])
                     merged.append(chunk)
         return merged
+
+    @staticmethod
+    def _clean_doi(raw: str) -> str:
+        """Убираем скобки и префикс 'DOI:' из скопированной моделью метки источника."""
+        s = raw.strip().lstrip("[").rstrip("]").strip()
+        for prefix in ("DOI:", "doi:"):
+            if s.startswith(prefix):
+                s = s[len(prefix):].strip()
+        return s
 
     @staticmethod
     def _format_context(context: List[dict]) -> str:
