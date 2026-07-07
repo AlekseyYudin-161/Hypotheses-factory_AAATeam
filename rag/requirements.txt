@@ -1,0 +1,7 @@
+# Зависимости RAG-ядра (отдельно от streamlit-фронтенда в корневом requirements.txt)
+langchain-core>=0.3
+langchain-openai>=0.2
+pydantic>=2.6,<3.0
+# Боевой ретривал по pgvector (rag/database.py):
+openai>=1.40
+psycopg2-binary>=2.9

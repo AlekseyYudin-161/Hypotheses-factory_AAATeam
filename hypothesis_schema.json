@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Hypothesis",
+  "type": "object",
+  "required": [
+    "hypothesis",
+    "rationale",
+    "mechanism",
+    "novelty",
+    "risk",
+    "value",
+    "economic_value",
+    "success_probability",
+    "evidence"
+  ],
+  "properties": {
+    "hypothesis": {
+      "type": "string"
+    },
+    "rationale": {
+      "type": "string"
+    },
+    "mechanism": {
+      "type": "string"
+    },
+    "expected_effect": {
+      "type": "string"
+    },
+    "industrial_scale": {
+      "type": "string"
+    },
+    "kpi_link": {
+      "type": "string"
+    },
+    "constraints_fit": {
+      "type": "string"
+    },
+    "novelty": {
+      "$ref": "#/$defs/score"
+    },
+    "risk": {
+      "$ref": "#/$defs/score"
+    },
+    "value": {
+      "$ref": "#/$defs/score"
+    },
+    "economic_value": {
+      "$ref": "#/$defs/score"
+    },
+    "verification_recommendation": {
+      "type": "string"
+    },
+    "causal_chain": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "resource_estimate": {
+      "type": "object"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence"
+      }
+    },
+    "roadmap": {
+      "type": "array"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "accepted",
+        "rejected"
+      ]
+    },
+    "success_probability": {
+      "$ref": "#/$defs/score"
+    }
+  },
+  "$defs": {
+    "score": {
+      "type": "object",
+      "required": [
+        "score",
+        "why"
+      ],
+      "properties": {
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "why": {
+          "type": "string"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "required": [
+        "source",
+        "source_url"
+      ],
+      "properties": {
+        "triplet": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "source_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "page": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "chunk_id": {
+          "type": "string"
+        },
+        "evidence_fragment": {
+          "type": "string"
+        },
+        "support_type": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "knowledge_base": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
